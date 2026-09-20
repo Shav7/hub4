@@ -1,0 +1,4 @@
+lerobot>=0.2.0
+opencv-python>=4.10
+numpy
+pytest
