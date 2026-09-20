@@ -32,3 +32,32 @@ def test_malformed_camera_config_is_ignored(monkeypatch, tmp_path):
     cfg.write_text("{not json")
     _patch(monkeypatch, {0, 1}, cfg)
     assert find_camera_index() == (1, "camera 1")
+
+
+class FlakyCapture:
+    """Opens fine; first read fails, later reads succeed."""
+    reads = 0
+
+    def __init__(self, index):
+        pass
+
+    def isOpened(self):
+        return True
+
+    def read(self):
+        FlakyCapture.reads += 1
+        if FlakyCapture.reads == 16:  # first read after the 15-frame warm-up
+            return False, None
+        return True, np.zeros((4, 4, 3), np.uint8)
+
+    def release(self):
+        pass
+
+
+def test_camera_reconnects_after_failed_read(monkeypatch):
+    FlakyCapture.reads = 0
+    monkeypatch.setattr(vision.cv2, "VideoCapture", FlakyCapture)
+    monkeypatch.setattr(vision.time, "sleep", lambda s: None)
+    cam = vision.Camera(0, warmup_frames=15, reconnect_timeout_s=5)
+    frame = cam.read()  # fails once, reconnects, returns a frame
+    assert frame.shape == (4, 4, 3)

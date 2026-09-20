@@ -180,22 +180,48 @@ def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> tuple
 class Camera:
     """Webcam wrapper that discards warm-up frames so auto-exposure has settled."""
 
-    def __init__(self, index: int = 0, warmup_frames: int = 15, open_timeout_s: float = 5.0) -> None:
-        self.capture = cv2.VideoCapture(index)
-        deadline = time.monotonic() + open_timeout_s
-        while not self.capture.isOpened() and time.monotonic() < deadline:
+    def __init__(self, index: int = 0, warmup_frames: int = 15, open_timeout_s: float = 5.0,
+                 reconnect_timeout_s: float = 30.0) -> None:
+        self.index = index
+        self.warmup_frames = warmup_frames
+        self.open_timeout_s = open_timeout_s
+        self.reconnect_timeout_s = reconnect_timeout_s
+        self.capture = self._open()
+
+    def _open(self) -> cv2.VideoCapture:
+        capture = cv2.VideoCapture(self.index)
+        deadline = time.monotonic() + self.open_timeout_s
+        while not capture.isOpened() and time.monotonic() < deadline:
             time.sleep(0.1)
-        if not self.capture.isOpened():
-            raise RuntimeError(f"camera {index} did not open within {open_timeout_s}s")
-        for _ in range(warmup_frames):
-            self.capture.read()
-        logger.info("camera %d ready", index)
+        if not capture.isOpened():
+            raise RuntimeError(f"camera {self.index} did not open within {self.open_timeout_s}s")
+        for _ in range(self.warmup_frames):
+            capture.read()
+        logger.info("camera %d ready", self.index)
+        return capture
 
     def read(self) -> np.ndarray:
         ok, frame = self.capture.read()
-        if not ok or frame is None:
-            raise RuntimeError("camera read failed")
-        return frame
+        if ok and frame is not None:
+            return frame
+        return self._reconnect()
+
+    def _reconnect(self) -> np.ndarray:
+        """Camera dropped (unplugged, lid closed, USB hiccup): keep retrying until it comes back."""
+        logger.warning("camera %d read failed; reconnecting for up to %.0fs", self.index, self.reconnect_timeout_s)
+        self.capture.release()
+        deadline = time.monotonic() + self.reconnect_timeout_s
+        while time.monotonic() < deadline:
+            time.sleep(1.0)
+            try:
+                self.capture = self._open()
+            except RuntimeError:
+                continue
+            ok, frame = self.capture.read()
+            if ok and frame is not None:
+                logger.info("camera %d back", self.index)
+                return frame
+        raise RuntimeError(f"camera {self.index} did not recover within {self.reconnect_timeout_s}s")
 
     def release(self) -> None:
         self.capture.release()
