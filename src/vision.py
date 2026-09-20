@@ -126,22 +126,30 @@ def is_builtin(name: str) -> bool:
     return any(marker in lowered for marker in BUILTIN_MARKERS)
 
 
-def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> tuple[int, str]:
-    """Return (index, name) of the camera to use. With prefer_external, choose the first device
-    whose name is not a built-in/screen device. Falls back to probing indices when names are
-    unavailable (external cameras enumerate after the built-in one on macOS)."""
-    named = list_cameras()
-    if named:
-        external = [(i, n) for i, n in named if not is_builtin(n)]
-        if prefer_external and external:
-            chosen = external[0]
-        elif not prefer_external:
-            chosen = named[0]
-        else:
-            raise RuntimeError(f"no external camera found; devices: {named}")
-        logger.info("cameras %s -> using %s", named, chosen)
-        return chosen
+CAMERA_CONFIG = Path(__file__).resolve().parent.parent / "camera.json"
 
+
+def remember_camera(index: int, name: str = "") -> None:
+    import json
+
+    CAMERA_CONFIG.write_text(json.dumps({"index": index, "name": name}, indent=2) + "\n")
+    logger.info("saved camera choice %d (%s) to %s", index, name, CAMERA_CONFIG)
+
+
+def remembered_camera() -> tuple[int, str] | None:
+    import json
+
+    if not CAMERA_CONFIG.is_file():
+        return None
+    try:
+        data = json.loads(CAMERA_CONFIG.read_text())
+        return int(data["index"]), str(data.get("name", ""))
+    except (ValueError, KeyError, TypeError):
+        logger.warning("ignoring malformed %s", CAMERA_CONFIG)
+        return None
+
+
+def probe_cameras(max_index: int = 4) -> list[int]:
     usable = []
     for index in range(max_index):
         capture = cv2.VideoCapture(index)
@@ -149,10 +157,23 @@ def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> tuple
         capture.release()
         if ok:
             usable.append(index)
+    return usable
+
+
+def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> tuple[int, str]:
+    """Return (index, name). A remembered choice (camera.json, written by --remember or
+    cameras.py) wins. Otherwise fall back to probing: OpenCV's AVFoundation index order is
+    not reliably the same as the system device list, so we cannot pick by name; external
+    cameras usually enumerate after the built-in one, so take the highest usable index."""
+    saved = remembered_camera()
+    if saved is not None:
+        logger.info("using remembered camera %s", saved)
+        return saved
+    usable = probe_cameras(max_index)
     if not usable:
         raise RuntimeError("no camera found")
     index = usable[-1] if prefer_external else usable[0]
-    logger.info("cameras %s -> using %d (by index)", usable, index)
+    logger.warning("no camera.json; guessed camera %d from %s. Run cameras.py to pick and remember one.", index, usable)
     return index, f"camera {index}"
 
 

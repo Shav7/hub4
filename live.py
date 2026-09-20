@@ -18,7 +18,7 @@ from animation import ANIMATIONS
 from choreography import Choreographer, Clip
 from realtime import AnimationSwitcher, ContinuousPlayer, SwitchDecision
 from semantics import SemanticMatcher
-from vision import Camera, Detection, YoloDetector, find_camera_index
+from vision import Camera, Detection, YoloDetector, find_camera_index, remember_camera
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 logging.getLogger("lerobot").setLevel(logging.WARNING)
@@ -56,7 +56,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="vision + switching only, no servos")
     ap.add_argument("--show", action="store_true", help="open a window with detections and status")
-    ap.add_argument("--camera", type=int, default=None, help="camera index; default = external camera if present")
+    ap.add_argument("--camera", type=int, default=None, help="camera index (default: remembered choice from camera.json)")
+    ap.add_argument("--remember", action="store_true", help="save --camera as the default for next time")
     ap.add_argument("--confirm", type=int, default=5, help="consecutive agreeing frames before switching")
     ap.add_argument("--min-conf", type=float, default=0.5, help="detection confidence needed to trigger a switch")
     ap.add_argument("--dwell", type=float, default=3.0, help="minimum seconds an animation plays before switching")
@@ -70,6 +71,8 @@ def main() -> None:
     switcher = AnimationSwitcher(confirm_frames=args.confirm, min_confidence=args.min_conf, min_dwell_s=args.dwell)
     if args.camera is not None:
         camera_index, camera_name = args.camera, f"camera {args.camera}"
+        if args.remember:
+            remember_camera(camera_index, camera_name)
     else:
         camera_index, camera_name = find_camera_index()
     camera = Camera(camera_index)

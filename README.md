@@ -24,6 +24,8 @@ pip install -r requirements.txt
 ```
 
 Find your serial port with `lerobot-find-port` and set it in `src/spider.py` (`DEFAULT_PORT`).
+Pick the camera once with `python cameras.py` (OpenCV's camera index order on macOS does not
+match the system device list, so it cannot be chosen by name).
 
 ## Run
 
@@ -33,7 +35,8 @@ python pose.py spider flower_closed alert neutral       # play a pose sequence
 python demo.py                                          # gaze-follow sweep
 python live.py --show                                   # real-time loop with a window: boxes, confidence, current animation
 python live.py --dry-run --show                         # vision + switching only, no servos
-python live.py --camera 1                               # force a specific camera index (default: first non-built-in by name)
+python cameras.py                                       # see every camera with its index; press the digit to remember the USB one
+python live.py --camera 0 --remember                    # or set it directly; saved to camera.json
 python live.py --confirm 6 --min-conf 0.6 --dwell 2     # less sensitive
 python perform.py spider flower greet --seconds 10      # choreographed moods, no camera needed
 ```
