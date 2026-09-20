@@ -106,12 +106,12 @@ ANIMATIONS: dict[str, Animation] = {
             limb_phase_s=0.15,
         ),
         Animation(
-            "greet",  # rises to attention, waves the front limb
+            "greet",  # front limb waves while the body sways side to side and the back bobs
             (
-                Keyframe({"front": 50.0, "right": -20.0, "back": -20.0, "left": -20.0}, 0.45),
-                Keyframe({"front": 20.0, "right": -20.0, "back": -20.0, "left": -20.0}, 0.3),
-                Keyframe({"front": 50.0, "right": -20.0, "back": -20.0, "left": -20.0}, 0.3),
-                Keyframe({"front": 20.0, "right": -20.0, "back": -20.0, "left": -20.0}, 0.3),
+                Keyframe({"front": 50.0, "right": -35.0, "back": -10.0, "left": -5.0}, 0.35),
+                Keyframe({"front": 15.0, "right": -20.0, "back": -30.0, "left": -20.0}, 0.35),
+                Keyframe({"front": 50.0, "right": -5.0, "back": -10.0, "left": -35.0}, 0.35),
+                Keyframe({"front": 15.0, "right": -20.0, "back": -30.0, "left": -20.0}, 0.35),
             ),
             SemanticProfile("greet", {"human": 1.0, "social": 0.8, "face": 0.6, "attention": 0.5, "friendly": 0.5}),
         ),

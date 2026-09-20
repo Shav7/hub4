@@ -31,8 +31,9 @@ Find your serial port with `lerobot-find-port` and set it in `src/spider.py` (`D
 python pose.py --list                                   # static poses
 python pose.py spider flower_closed alert neutral       # play a pose sequence
 python demo.py                                          # gaze-follow sweep
-python live.py --dry-run                                # vision + choice, no servos (auto-picks an external camera)
-python live.py --segment 3                              # the full loop; Ctrl-C to stop
+python live.py --show                                   # real-time loop with a window: boxes, confidence, current animation
+python live.py --dry-run --show                         # vision + switching only, no servos
+python live.py --confirm 6 --min-conf 0.6 --dwell 2     # less sensitive
 ```
 
 ## Animations
@@ -59,7 +60,8 @@ src/poses.py       static pose library + per-limb calibration (neutral, sign, li
 src/animation.py   keyframed animations, ring choreography, streaming player
 src/vision.py      YOLOv8n via cv2.dnn, warmed-up camera
 src/semantics.py   label ⇄ animation matching with hysteresis
-tests/             46 tests against a fake bus (no hardware needed)
+src/realtime.py    debounced animation switcher + continuous player thread with crossfade
+tests/             58 tests against a fake bus (no hardware needed)
 ```
 
 ```sh
