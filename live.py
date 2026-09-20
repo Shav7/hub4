@@ -15,6 +15,7 @@ sys.path.insert(0, "src")
 import cv2
 
 from animation import ANIMATIONS
+from choreography import Choreographer, Clip
 from realtime import AnimationSwitcher, ContinuousPlayer, SwitchDecision
 from semantics import SemanticMatcher
 from vision import Camera, Detection, YoloDetector, find_camera_index
@@ -26,7 +27,7 @@ log = logging.getLogger("live")
 GREEN, ORANGE, WHITE, RED = (0, 200, 0), (0, 160, 255), (255, 255, 255), (0, 0, 255)
 
 
-def annotate(frame, detections: list[Detection], decision: SwitchDecision, min_conf: float):
+def annotate(frame, detections: list[Detection], decision: SwitchDecision, min_conf: float, clip: Clip | None = None, camera_label: str = ""):
     out = frame.copy()
     for d in detections:
         x0, y0, x1, y1 = d.box_xyxy
@@ -34,7 +35,11 @@ def annotate(frame, detections: list[Detection], decision: SwitchDecision, min_c
         cv2.rectangle(out, (x0, y0), (x1, y1), color, 2)
         cv2.putText(out, f"{d.label} {d.confidence:.0%}", (x0, max(24, y0 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     cv2.rectangle(out, (0, 0), (out.shape[1], 70), (0, 0, 0), -1)
-    cv2.putText(out, f"PLAYING: {decision.animation.upper()}", (12, 46), cv2.FONT_HERSHEY_SIMPLEX, 1.3, WHITE, 3)
+    cv2.putText(out, f"MOOD: {decision.animation.upper()}", (12, 46), cv2.FONT_HERSHEY_SIMPLEX, 1.3, WHITE, 3)
+    if clip is not None:
+        cv2.putText(out, f"clip: {clip.name} ({clip.scale}, x{clip.speed:.2f})", (12, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, ORANGE, 2)
+    if camera_label:
+        cv2.putText(out, camera_label, (out.shape[1] - 260, out.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.7, WHITE, 2)
     if decision.candidate:
         bar_w = 240
         cv2.rectangle(out, (out.shape[1] - bar_w - 20, 20), (out.shape[1] - 20, 50), WHITE, 2)
@@ -63,7 +68,13 @@ def main() -> None:
     detector = YoloDetector(args.model, conf_threshold=0.3)
     matcher = SemanticMatcher({name: a.semantics for name, a in ANIMATIONS.items()}, switch_margin=0.05)
     switcher = AnimationSwitcher(confirm_frames=args.confirm, min_confidence=args.min_conf, min_dwell_s=args.dwell)
-    camera = Camera(args.camera if args.camera is not None else find_camera_index())
+    camera_index = args.camera if args.camera is not None else find_camera_index()
+    camera = Camera(camera_index)
+    camera_label = f"camera {camera_index} ({int(camera.capture.get(cv2.CAP_PROP_FPS))} fps)"
+    log.info("using %s", camera_label)
+    choreo = Choreographer()
+    clip: Clip | None = None
+    clip_end = 0.0
 
     player = bus = None
     if not args.dry_run:
@@ -85,20 +96,27 @@ def main() -> None:
             detections = detector.detect(frame)
             chosen, _ = matcher.pick(detections)
             decision = switcher.update(chosen, detections)
-            if decision.switched and player is not None:
-                player.set_animation(decision.animation)
+            now = time.monotonic()
+            if decision.switched:
+                choreo.set_mood(decision.animation)
+                clip_end = 0.0  # start the new mood's entry gesture immediately
+            if now >= clip_end:
+                clip = choreo.next_clip()
+                clip_end = now + clip.duration_s
+                if player is not None:
+                    player.set_animation(clip.name, clip.speed, clip.offset)
+                log.info("mood %-6s clip %-13s %-5s x%.2f for %.1fs", decision.animation, clip.name, clip.scale, clip.speed, clip.duration_s)
             if player is not None and player.error is not None:
                 raise RuntimeError("animation player stopped") from player.error
 
-            now = time.monotonic()
             if decision.switched or now - last_log >= args.log_every:
                 seen = ", ".join(f"{d.label} {d.confidence:.0%}" for d in detections[:4]) or "nothing"
                 cand = f"  candidate {decision.candidate} {decision.progress}/{decision.needed}" if decision.candidate else ""
-                log.info("playing %-7s | sees: %s%s", decision.animation, seen, cand)
+                log.info("mood %-6s | sees: %s%s", decision.animation, seen, cand)
                 last_log = now
 
             if args.show or args.save_frame:
-                shown = annotate(frame, detections, decision, args.min_conf)
+                shown = annotate(frame, detections, decision, args.min_conf, clip, camera_label)
                 if args.save_frame:
                     cv2.imwrite(args.save_frame, cv2.resize(shown, (960, 540)))
                 if args.show:

@@ -35,6 +35,7 @@ class Animation:
     semantics: SemanticProfile
     loop: bool = True
     limb_phase_s: float = 0.0  # ripple: each successive limb around the ring lags by this much
+    scale: str = "macro"  # "macro" = full-body absolute pose; "micro" = small offsets layered on a mood's rest pose
 
     @property
     def period_s(self) -> float:
@@ -75,66 +76,78 @@ def _pairs(a: float, b: float) -> dict[str, float]:
     return {"front": a, "back": a, "right": b, "left": b}
 
 
+def _sides(a: float, b: float) -> dict[str, float]:
+    """front/back = a, right = b, left = -b (a lean)."""
+    return {"front": a, "back": a, "right": b, "left": -b}
+
+
+def _one(limb: str, angle: float, rest: float = 0.0) -> dict[str, float]:
+    return {l: (angle if l == limb else rest) for l in LIMB_NAMES}
+
+
+_NONE = SemanticProfile("", {})
+
+
+def _macro(name, keyframes, semantics=_NONE, *, loop=True, phase=0.0):
+    return Animation(name, tuple(Keyframe(a, d) for a, d in keyframes), semantics, loop=loop, limb_phase_s=phase, scale="macro")
+
+
+def _micro(name, keyframes, *, loop=True, phase=0.0):
+    return Animation(name, tuple(Keyframe(a, d) for a, d in keyframes), _NONE, loop=loop, limb_phase_s=phase, scale="micro")
+
+
 ANIMATIONS: dict[str, Animation] = {
     a.name: a
     for a in (
-        Animation(
-            "idle",
-            (Keyframe(_uniform(-5.0), 1.6), Keyframe(_uniform(5.0), 1.6)),
-            SemanticProfile("idle", {}),
-            limb_phase_s=0.2,
-        ),
-        Animation(
-            "spider",  # legs planted, alternating pairs scuttle
-            (
-                Keyframe(_pairs(-60.0, -35.0), 0.28),
-                Keyframe(_pairs(-35.0, -60.0), 0.28),
-            ),
-            SemanticProfile("spider", {"creature": 1.0, "animal": 0.9, "predator": 0.8, "threat": 0.6, "small": 0.4, "sharp": 0.3}),
-        ),
-        Animation(
-            "flower",  # petals open from folded, breathe, close
-            (
-                Keyframe(_uniform(70.0), 0.6),
-                Keyframe(_uniform(0.0), 0.9),
-                Keyframe(_uniform(-15.0), 0.7),
-                Keyframe(_uniform(-5.0), 0.7),
-                Keyframe(_uniform(-15.0), 0.7),
-                Keyframe(_uniform(60.0), 0.9),
-            ),
-            SemanticProfile("flower", {"flower": 1.0, "plant": 0.9, "nature": 0.7, "calm": 0.6, "growth": 0.5, "open": 0.4}),
-            limb_phase_s=0.15,
-        ),
-        Animation(
-            "greet",  # front limb waves while the body sways side to side and the back bobs
-            (
-                Keyframe({"front": 50.0, "right": -35.0, "back": -10.0, "left": -5.0}, 0.35),
-                Keyframe({"front": 15.0, "right": -20.0, "back": -30.0, "left": -20.0}, 0.35),
-                Keyframe({"front": 50.0, "right": -5.0, "back": -10.0, "left": -35.0}, 0.35),
-                Keyframe({"front": 15.0, "right": -20.0, "back": -30.0, "left": -20.0}, 0.35),
-            ),
-            SemanticProfile("greet", {"human": 1.0, "social": 0.8, "face": 0.6, "attention": 0.5, "friendly": 0.5}),
-        ),
-        Animation(
-            "wave",  # a single crest travelling around the ring
-            (Keyframe(_uniform(45.0), 0.35), Keyframe(_uniform(-30.0), 0.55)),
-            SemanticProfile("wave", {"motion": 1.0, "playful": 0.8, "toy": 0.6, "round": 0.4, "flight": 0.4, "wind": 0.4}),
-            limb_phase_s=0.22,
-        ),
-        Animation(
-            "rest",  # curl up and stay
-            (Keyframe(_uniform(80.0), 1.2),),
-            SemanticProfile("rest", {"rest": 1.0, "calm": 0.7, "furniture": 0.5, "static": 0.5, "soft": 0.4}),
-            loop=False,
-        ),
-        Animation(
-            "scan",  # slow look-around: each limb probes in turn
-            (Keyframe(_uniform(25.0), 0.5), Keyframe(_uniform(-10.0), 0.5)),
-            SemanticProfile("scan", {"device": 1.0, "screen": 0.7, "work": 0.6, "handheld": 0.4, "object": 0.3}),
-            limb_phase_s=0.5,
-        ),
+        # ---------- mood anchors (carry the semantics) ----------
+        _macro("idle", [(_uniform(-5), 1.6), (_uniform(5), 1.6)], SemanticProfile("idle", {}), phase=0.2),
+        _macro("spider", [(_pairs(-60, -35), 0.28), (_pairs(-35, -60), 0.28)],
+               SemanticProfile("spider", {"creature": 1.0, "animal": 0.9, "predator": 0.8, "threat": 0.6, "small": 0.4, "sharp": 0.3})),
+        _macro("flower", [(_uniform(70), 0.6), (_uniform(0), 0.9), (_uniform(-15), 0.7), (_uniform(-5), 0.7), (_uniform(-15), 0.7), (_uniform(60), 0.9)],
+               SemanticProfile("flower", {"flower": 1.0, "plant": 0.9, "nature": 0.7, "calm": 0.6, "growth": 0.5, "open": 0.4}), phase=0.15),
+        _macro("greet", [({"front": 50, "right": -35, "back": -10, "left": -5}, 0.35), ({"front": 15, "right": -20, "back": -30, "left": -20}, 0.35),
+                         ({"front": 50, "right": -5, "back": -10, "left": -35}, 0.35), ({"front": 15, "right": -20, "back": -30, "left": -20}, 0.35)],
+               SemanticProfile("greet", {"human": 1.0, "social": 0.8, "face": 0.6, "attention": 0.5, "friendly": 0.5})),
+        _macro("wave", [(_uniform(45), 0.35), (_uniform(-30), 0.55)],
+               SemanticProfile("wave", {"motion": 1.0, "playful": 0.8, "toy": 0.6, "round": 0.4, "flight": 0.4, "wind": 0.4}), phase=0.22),
+        _macro("rest", [(_uniform(80), 1.2)], SemanticProfile("rest", {"rest": 1.0, "calm": 0.7, "furniture": 0.5, "static": 0.5, "soft": 0.4}), loop=False),
+        _macro("scan", [(_uniform(25), 0.5), (_uniform(-10), 0.5)],
+               SemanticProfile("scan", {"device": 1.0, "screen": 0.7, "work": 0.6, "handheld": 0.4, "object": 0.3}), phase=0.5),
+        # ---------- more macros ----------
+        _macro("stretch", [(_uniform(-10), 0.8), (_uniform(75), 1.2), (_uniform(-50), 1.0)], phase=0.1),
+        _macro("spin", [(_uniform(50), 0.3), (_uniform(-40), 0.3)], phase=0.15),
+        _macro("bow", [({"front": -70, "right": -10, "back": 40, "left": -10}, 0.6), ({"front": -70, "right": -10, "back": 40, "left": -10}, 0.5), (_uniform(0), 0.7)]),
+        _macro("pounce", [(_uniform(-75), 0.5), (_uniform(45), 0.25), (_uniform(-55), 0.5)]),
+        _macro("prowl", [(_pairs(-65, -25), 0.5), (_pairs(-25, -65), 0.5)]),
+        _macro("bloom_hold", [(_uniform(70), 1.2), (_uniform(-25), 1.2), (_uniform(-25), 1.5)], phase=0.2),
+        _macro("sway_bloom", [({"front": -15, "right": 10, "back": -15, "left": -40}, 0.9), ({"front": -15, "right": -40, "back": -15, "left": 10}, 0.9)]),
+        _macro("peek", [(_uniform(-20), 0.5), (_uniform(55), 0.4), (_uniform(-20), 0.3)], phase=0.4),
+        _macro("sweep", [(_uniform(35), 0.7), (_uniform(-25), 0.7)], phase=0.35),
+        _macro("curl_breathe", [(_uniform(80), 1.5), (_uniform(68), 1.5)]),
+        # ---------- entry gestures (play once when a mood begins) ----------
+        _macro("startle", [(_uniform(60), 0.2), (_uniform(-10), 0.5), (_uniform(5), 0.4)], loop=False),
+        _macro("crouch_snap", [(_uniform(-75), 0.25), (_pairs(-60, -35), 0.4)], loop=False),
+        _macro("unfurl", [(_uniform(75), 0.4), (_uniform(-10), 1.2)], loop=False, phase=0.2),
+        _macro("alert_up", [(_uniform(30), 0.3), (_uniform(15), 0.4)], loop=False),
+        _macro("settle", [(_uniform(80), 1.2)], loop=False),
+        # ---------- micro (offsets around a mood's rest pose) ----------
+        _micro("breathe", [(_uniform(-4), 1.8), (_uniform(4), 1.8)], phase=0.15),
+        _micro("twitch", [(_one("front", 8), 0.12), (_uniform(0), 0.25), (_uniform(0), 0.8)]),
+        _micro("shiver", [(_uniform(-3), 0.08), (_uniform(3), 0.08)]),
+        _micro("shiver_soft", [(_uniform(-2), 0.15), (_uniform(2), 0.15)]),
+        _micro("tap", [(_one("front", -12), 0.15), (_uniform(0), 0.15), (_one("front", -12), 0.15), (_uniform(0), 0.6)]),
+        _micro("tilt", [(_sides(0, 12), 1.2), (_sides(0, -12), 1.2)]),
+        _micro("nod", [({"front": 10, "back": -10, "right": 0, "left": 0}, 0.4), ({"front": -10, "back": 10, "right": 0, "left": 0}, 0.4)]),
+        _micro("sway", [(_sides(0, 10), 0.8), (_sides(0, -10), 0.8)]),
+        _micro("shrug", [({"front": 0, "back": 0, "right": 15, "left": 15}, 0.3), (_uniform(0), 0.5), (_uniform(0), 0.5)]),
+        _micro("ripple_micro", [(_uniform(10), 0.3), (_uniform(-10), 0.3)], phase=0.15),
+        _micro("petal_flutter", [(_uniform(3), 0.2), (_uniform(-3), 0.2)], phase=0.1),
+        _micro("scuttle_step", [(_pairs(-8, 12), 0.15), (_pairs(12, -8), 0.15)]),
     )
 }
+
+MACROS = tuple(n for n, a in ANIMATIONS.items() if a.scale == "macro")
+MICROS = tuple(n for n, a in ANIMATIONS.items() if a.scale == "micro")
 
 
 @dataclass

@@ -80,19 +80,28 @@ class ContinuousPlayer(threading.Thread):
         self.blend_s = blend_s
         self._lock = threading.Lock()
         self._current = animations[initial]
+        self._speed = 1.0
+        self._offset: dict[str, float] | None = None
         self._t0 = time.monotonic()
         self._blend_from: dict[str, float] | None = None
         self._last_angles: dict[str, float] | None = None
         self._stop_event = threading.Event()
         self.error: BaseException | None = None
 
-    def set_animation(self, name: str) -> None:
+    def set_animation(self, name: str, speed: float = 1.0, offset: dict[str, float] | None = None) -> None:
+        """Start a clip: `speed` scales time, `offset` (per-limb degrees) is added for micro clips."""
+        if speed <= 0:
+            raise ValueError("speed must be positive")
         with self._lock:
-            if self.animations[name] is self._current:
-                return
             self._blend_from = dict(self._last_angles) if self._last_angles else None
             self._current = self.animations[name]
+            self._speed = speed
+            self._offset = dict(offset) if offset else None
             self._t0 = time.monotonic()
+
+    @property
+    def current_name(self) -> str:
+        return self._current.name
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -111,7 +120,9 @@ class ContinuousPlayer(threading.Thread):
     def _angles_now(self) -> dict[str, float]:
         with self._lock:
             t = time.monotonic() - self._t0
-            angles = self._current.angles_at(t)
+            angles = self._current.angles_at(t * self._speed)
+            if self._offset is not None:
+                angles = {n: a + self._offset[n] for n, a in angles.items()}
             if self._blend_from is not None:
                 if t >= self.blend_s:
                     self._blend_from = None

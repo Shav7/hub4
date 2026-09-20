@@ -34,11 +34,17 @@ python demo.py                                          # gaze-follow sweep
 python live.py --show                                   # real-time loop with a window: boxes, confidence, current animation
 python live.py --dry-run --show                         # vision + switching only, no servos
 python live.py --confirm 6 --min-conf 0.6 --dwell 2     # less sensitive
+python perform.py spider flower greet --seconds 10      # choreographed moods, no camera needed
 ```
 
-## Animations
+## Moods and choreography
 
-| Animation | Motion | Triggered by |
+What the camera sees selects a **mood**. Each mood has a rest pose, an entry gesture, a few
+**macro** animations (full-body) and a few **micro** animations (small offsets layered on the
+rest pose). The choreographer alternates macros and micro bursts with randomised tempo and
+repeat counts, never repeating a macro back to back, so motion stays expressive without looping.
+
+| Mood | Motion | Triggered by |
 |---|---|---|
 | spider | legs planted, opposite pairs scuttle | cat, dog, bear, knife, scissors |
 | flower | petals unfold in sequence, breathe, close | potted plant, vase, umbrella |
@@ -60,8 +66,9 @@ src/poses.py       static pose library + per-limb calibration (neutral, sign, li
 src/animation.py   keyframed animations, ring choreography, streaming player
 src/vision.py      YOLOv8n via cv2.dnn, warmed-up camera
 src/semantics.py   label ⇄ animation matching with hysteresis
-src/realtime.py    debounced animation switcher + continuous player thread with crossfade
-tests/             58 tests against a fake bus (no hardware needed)
+src/realtime.py    debounced mood switcher + continuous player thread with crossfade
+src/choreography.py moods (rest pose, entry, macros, micros, tempo) and the clip sequencer
+tests/             70 tests against a fake bus (no hardware needed)
 ```
 
 ```sh
