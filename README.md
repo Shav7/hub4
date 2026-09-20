@@ -24,8 +24,9 @@ pip install -r requirements.txt
 ```
 
 Find your serial port with `lerobot-find-port` and set it in `src/spider.py` (`DEFAULT_PORT`).
-Pick the camera once with `python cameras.py` (OpenCV's camera index order on macOS does not
-match the system device list, so it cannot be chosen by name).
+The USB camera is opened **by device name** through an ffmpeg pipe (`brew install ffmpeg`),
+because OpenCV's camera indices on macOS shuffle when devices are plugged in. Without ffmpeg
+it falls back to an OpenCV index you pick once with `python cameras.py`.
 
 ## Run
 
@@ -35,8 +36,8 @@ python pose.py spider flower_closed alert neutral       # play a pose sequence
 python demo.py                                          # gaze-follow sweep
 python live.py --show                                   # real-time loop with a window: boxes, confidence, current animation
 python live.py --dry-run --show                         # vision + switching only, no servos
-python cameras.py                                       # see every camera with its index; press the digit to remember the USB one
-python live.py --camera 0 --remember                    # or set it directly; saved to camera.json
+python live.py --camera-name Innomaker-U20CAM-1080p-S1 --remember   # open the USB camera by name (ffmpeg), save as default
+python cameras.py                                       # fallback: pick an OpenCV index visually (no ffmpeg)
 python live.py --confirm 6 --min-conf 0.6 --dwell 2     # less sensitive
 python perform.py spider flower greet --seconds 10      # choreographed moods, no camera needed
 ```

@@ -61,3 +61,59 @@ def test_camera_reconnects_after_failed_read(monkeypatch):
     cam = vision.Camera(0, warmup_frames=15, reconnect_timeout_s=5)
     frame = cam.read()  # fails once, reconnects, returns a frame
     assert frame.shape == (4, 4, 3)
+
+
+LISTING = """[AVFoundation indev @ 0x1] AVFoundation video devices:
+[AVFoundation indev @ 0x1] [0] FaceTime HD Camera
+[AVFoundation indev @ 0x1] [1] Innomaker-U20CAM-1080p-S1
+[AVFoundation indev @ 0x1] [2] Capture screen 0
+[AVFoundation indev @ 0x1] AVFoundation audio devices:
+[AVFoundation indev @ 0x1] [0] MacBook Pro Microphone
+"""
+
+
+def test_parse_avfoundation_devices_video_only():
+    assert vision.parse_avfoundation_devices(LISTING) == [
+        (0, "FaceTime HD Camera"), (1, "Innomaker-U20CAM-1080p-S1"), (2, "Capture screen 0")]
+
+
+def test_is_builtin_markers():
+    assert vision.is_builtin("FaceTime HD Camera") and vision.is_builtin("Capture screen 0")
+    assert not vision.is_builtin("Innomaker-U20CAM-1080p-S1")
+
+
+class FakeFfmpegCamera:
+    def __init__(self, name, **kw):
+        self.device_name = name
+
+
+def test_open_camera_prefers_remembered_name_when_connected(monkeypatch, tmp_path):
+    _patch(monkeypatch, {0}, tmp_path / "camera.json")
+    monkeypatch.setattr(vision, "list_cameras", lambda: [(0, "FaceTime HD Camera"), (1, "Innomaker-U20CAM-1080p-S1")])
+    monkeypatch.setattr(vision, "FfmpegCamera", FakeFfmpegCamera)
+    vision.remember_camera(None, "Innomaker-U20CAM-1080p-S1")
+    cam, label = vision.open_camera()
+    assert isinstance(cam, FakeFfmpegCamera) and cam.device_name == "Innomaker-U20CAM-1080p-S1"
+    assert "ffmpeg" in label
+
+
+def test_open_camera_picks_first_external_by_name(monkeypatch):
+    _patch(monkeypatch, {0})
+    monkeypatch.setattr(vision, "list_cameras", lambda: [(0, "FaceTime HD Camera"), (1, "Innomaker-U20CAM-1080p-S1")])
+    monkeypatch.setattr(vision, "FfmpegCamera", FakeFfmpegCamera)
+    cam, _ = vision.open_camera()
+    assert cam.device_name == "Innomaker-U20CAM-1080p-S1"
+
+
+def test_open_camera_falls_back_to_opencv_without_external(monkeypatch):
+    _patch(monkeypatch, {0})
+    monkeypatch.setattr(vision, "list_cameras", lambda: [(0, "FaceTime HD Camera")])
+    cam, label = vision.open_camera()
+    assert isinstance(cam, vision.Camera) and "guessed" in label
+
+
+def test_open_camera_explicit_index_wins(monkeypatch):
+    _patch(monkeypatch, {0, 1})
+    monkeypatch.setattr(vision, "list_cameras", lambda: [(0, "Innomaker-U20CAM-1080p-S1")])
+    cam, label = vision.open_camera(index=1)
+    assert isinstance(cam, vision.Camera) and label.startswith("camera 1")

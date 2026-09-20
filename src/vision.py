@@ -127,9 +127,130 @@ def is_builtin(name: str) -> bool:
 
 
 CAMERA_CONFIG = Path(__file__).resolve().parent.parent / "camera.json"
+BUILTIN_MARKERS = ("facetime", "iphone", "continuity", "built-in", "capture screen")
 
 
-def remember_camera(index: int, name: str = "") -> None:
+def list_cameras() -> list[tuple[int, str]]:
+    """(index, name) of AVFoundation video devices via ffmpeg (macOS). [] if ffmpeg is missing.
+    NOTE: these indices are ffmpeg's, not necessarily cv2.VideoCapture's."""
+    import shutil
+    import subprocess
+
+    if shutil.which("ffmpeg") is None:
+        return []
+    try:
+        proc = subprocess.run(["ffmpeg", "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                              capture_output=True, text=True, timeout=10)
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    return parse_avfoundation_devices(proc.stderr)
+
+
+def parse_avfoundation_devices(listing: str) -> list[tuple[int, str]]:
+    import re
+
+    cameras: list[tuple[int, str]] = []
+    in_video = False
+    for line in listing.splitlines():
+        if "video devices" in line:
+            in_video = True
+            continue
+        if "audio devices" in line:
+            break
+        match = re.search(r"\[(\d+)\] (.+)$", line) if in_video else None
+        if match:
+            cameras.append((int(match.group(1)), match.group(2).strip()))
+    return cameras
+
+
+def is_builtin(name: str) -> bool:
+    lowered = name.lower()
+    return any(marker in lowered for marker in BUILTIN_MARKERS)
+
+
+class FfmpegCamera:
+    """Open an AVFoundation camera *by device name* via an ffmpeg rawvideo pipe.
+    A reader thread keeps only the newest frame so detection never lags behind the camera."""
+
+    def __init__(self, device_name: str, width: int = 1280, height: int = 720, fps: int = 30,
+                 start_timeout_s: float = 8.0) -> None:
+        import subprocess
+        import threading
+
+        self.device_name = device_name
+        self.width, self.height, self.fps = width, height, fps
+        self._frame_bytes = width * height * 3
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "avfoundation", "-framerate", str(fps),
+               "-video_size", f"{width}x{height}", "-i", device_name, "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+        self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        self._latest: np.ndarray | None = None
+        self._lock = threading.Lock()
+        self._new = threading.Event()
+        self._reader = threading.Thread(target=self._pump, daemon=True, name="ffmpeg-reader")
+        self._reader.start()
+        if not self._new.wait(start_timeout_s):
+            err = self._proc.stderr.read().decode(errors="replace") if self._proc.poll() is not None else "no frames"
+            self.release()
+            raise RuntimeError(f"ffmpeg camera {device_name!r} produced no frames: {err.strip()[:400]}")
+        logger.info("ffmpeg camera %r ready at %dx%d@%d", device_name, width, height, fps)
+
+    def _pump(self) -> None:
+        out = self._proc.stdout
+        while True:
+            buf = bytearray()
+            while len(buf) < self._frame_bytes:
+                chunk = out.read(self._frame_bytes - len(buf))
+                if not chunk:
+                    return
+                buf += chunk
+            frame = np.frombuffer(bytes(buf), np.uint8).reshape(self.height, self.width, 3)
+            with self._lock:
+                self._latest = frame
+            self._new.set()
+
+    def read(self) -> np.ndarray:
+        if not self._new.wait(5.0):
+            raise RuntimeError(f"ffmpeg camera {self.device_name!r} stopped delivering frames")
+        with self._lock:
+            frame = self._latest
+            self._new.clear()
+        return frame
+
+    def release(self) -> None:
+        if self._proc.poll() is None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(2)
+            except Exception:  # noqa: BLE001 - best-effort cleanup
+                self._proc.kill()
+
+
+def open_camera(index: int | None = None, name: str | None = None):
+    """Return (camera, label). Priority: explicit index (OpenCV) > explicit name (ffmpeg) >
+    remembered camera.json (name or index) > first non-built-in device by name > OpenCV guess."""
+    if index is not None:
+        return Camera(index), f"camera {index} (opencv)"
+    if name is None:
+        saved = remembered_camera()
+        if saved is not None:
+            saved_index, saved_name = saved
+            if saved_name and saved_name in {n for _, n in list_cameras()}:
+                name = saved_name
+            elif saved_name and not saved_name.startswith("camera "):
+                logger.warning("remembered camera %r is not connected", saved_name)
+            else:
+                return Camera(saved_index), f"camera {saved_index} (opencv, remembered)"
+    if name is None:
+        external = [n for _, n in list_cameras() if not is_builtin(n)]
+        if external:
+            name = external[0]
+    if name is not None:
+        return FfmpegCamera(name), f"{name} (ffmpeg)"
+    guessed, label = find_camera_index()
+    return Camera(guessed), f"{label} (opencv, guessed)"
+
+
+def remember_camera(index: int | None, name: str = "") -> None:
     import json
 
     CAMERA_CONFIG.write_text(json.dumps({"index": index, "name": name}, indent=2) + "\n")
@@ -143,7 +264,8 @@ def remembered_camera() -> tuple[int, str] | None:
         return None
     try:
         data = json.loads(CAMERA_CONFIG.read_text())
-        return int(data["index"]), str(data.get("name", ""))
+        index = data.get("index")
+        return (int(index) if index is not None else -1), str(data.get("name", ""))
     except (ValueError, KeyError, TypeError):
         logger.warning("ignoring malformed %s", CAMERA_CONFIG)
         return None
