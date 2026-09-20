@@ -225,21 +225,37 @@ class FfmpegCamera:
                 self._proc.kill()
 
 
-def open_camera(index: int | None = None, name: str | None = None):
+def wait_for_device(name: str, timeout_s: float, poll_s: float = 2.0) -> bool:
+    """Block until a named AVFoundation device is listed, or timeout. Never falls back silently."""
+    deadline = time.monotonic() + timeout_s
+    warned = False
+    while True:
+        if name in {n for _, n in list_cameras()}:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        if not warned:
+            logger.warning("camera %r not connected; waiting up to %.0fs for it to appear", name, timeout_s)
+            warned = True
+        time.sleep(poll_s)
+
+
+def open_camera(index: int | None = None, name: str | None = None, wait_s: float = 120.0):
     """Return (camera, label). Priority: explicit index (OpenCV) > explicit name (ffmpeg) >
-    remembered camera.json (name or index) > first non-built-in device by name > OpenCV guess."""
+    remembered camera.json (name or index) > first non-built-in device by name > OpenCV guess.
+    A remembered/explicit name that is not connected is waited for, never substituted."""
     if index is not None:
         return Camera(index), f"camera {index} (opencv)"
     if name is None:
         saved = remembered_camera()
         if saved is not None:
             saved_index, saved_name = saved
-            if saved_name and saved_name in {n for _, n in list_cameras()}:
+            if saved_name and not saved_name.startswith("camera "):
                 name = saved_name
-            elif saved_name and not saved_name.startswith("camera "):
-                logger.warning("remembered camera %r is not connected", saved_name)
             else:
                 return Camera(saved_index), f"camera {saved_index} (opencv, remembered)"
+    if name is not None and not wait_for_device(name, wait_s):
+        raise RuntimeError(f"camera {name!r} did not appear within {wait_s:.0f}s; connected: {list_cameras()}")
     if name is None:
         external = [n for _, n in list_cameras() if not is_builtin(n)]
         if external:

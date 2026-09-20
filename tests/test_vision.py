@@ -87,6 +87,15 @@ class FakeFfmpegCamera:
         self.device_name = name
 
 
+def test_open_camera_waits_then_raises_when_named_camera_absent(monkeypatch, tmp_path):
+    _patch(monkeypatch, {0}, tmp_path / "camera.json")
+    monkeypatch.setattr(vision, "list_cameras", lambda: [(0, "FaceTime HD Camera")])
+    monkeypatch.setattr(vision.time, "sleep", lambda s: None)
+    vision.remember_camera(None, "Innomaker-U20CAM-1080p-S1")
+    with pytest.raises(RuntimeError):
+        vision.open_camera(wait_s=0.0)
+
+
 def test_open_camera_prefers_remembered_name_when_connected(monkeypatch, tmp_path):
     _patch(monkeypatch, {0}, tmp_path / "camera.json")
     monkeypatch.setattr(vision, "list_cameras", lambda: [(0, "FaceTime HD Camera"), (1, "Innomaker-U20CAM-1080p-S1")])
