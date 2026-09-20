@@ -31,7 +31,7 @@ Find your serial port with `lerobot-find-port` and set it in `src/spider.py` (`D
 python pose.py --list                                   # static poses
 python pose.py spider flower_closed alert neutral       # play a pose sequence
 python demo.py                                          # gaze-follow sweep
-python live.py --dry-run                                # vision + choice, no servos
+python live.py --dry-run                                # vision + choice, no servos (auto-picks an external camera)
 python live.py --segment 3                              # the full loop; Ctrl-C to stop
 ```
 

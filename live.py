@@ -9,7 +9,7 @@ import time
 sys.path.insert(0, "src")
 from animation import ANIMATIONS, AnimationPlayer
 from semantics import SemanticMatcher
-from vision import Camera, YoloDetector
+from vision import Camera, YoloDetector, find_camera_index
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 for noisy in ("lerobot",):
@@ -25,14 +25,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="vision + semantics only, no servos")
     ap.add_argument("--once", action="store_true", help="one frame, then exit")
-    ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument("--camera", type=int, default=None, help="camera index; default = external camera if present")
     ap.add_argument("--segment", type=float, default=3.0, help="seconds to play each chosen animation before re-looking")
     ap.add_argument("--model", default="models/yolov8n.onnx")
     args = ap.parse_args()
 
     detector = YoloDetector(args.model)
     matcher = SemanticMatcher({name: a.semantics for name, a in ANIMATIONS.items()})
-    camera = Camera(args.camera)
+    camera = Camera(args.camera if args.camera is not None else find_camera_index())
 
     player = None
     bus = None

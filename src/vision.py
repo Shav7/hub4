@@ -84,6 +84,23 @@ def _postprocess(raw: np.ndarray, scale: float, width: int, height: int, conf_th
     return sorted(detections, key=lambda d: d.confidence, reverse=True)
 
 
+def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> int:
+    """Return a usable camera index. External UVC cameras enumerate after the built-in one on macOS,
+    so 'external' means the highest index that opens and yields a frame."""
+    usable = []
+    for index in range(max_index):
+        capture = cv2.VideoCapture(index)
+        ok = capture.isOpened() and capture.read()[0]
+        capture.release()
+        if ok:
+            usable.append(index)
+    if not usable:
+        raise RuntimeError("no camera found")
+    chosen = usable[-1] if prefer_external else usable[0]
+    logger.info("cameras %s -> using %d", usable, chosen)
+    return chosen
+
+
 class Camera:
     """Webcam wrapper that discards warm-up frames so auto-exposure has settled."""
 
