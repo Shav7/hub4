@@ -39,7 +39,7 @@ def annotate(frame, detections: list[Detection], decision: SwitchDecision, min_c
     if clip is not None:
         cv2.putText(out, f"clip: {clip.name} ({clip.scale}, x{clip.speed:.2f})", (12, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, ORANGE, 2)
     if camera_label:
-        cv2.putText(out, camera_label, (out.shape[1] - 260, out.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.7, WHITE, 2)
+        cv2.putText(out, camera_label, (out.shape[1] - 520, out.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.7, WHITE, 2)
     if decision.candidate:
         bar_w = 240
         cv2.rectangle(out, (out.shape[1] - bar_w - 20, 20), (out.shape[1] - 20, 50), WHITE, 2)
@@ -68,9 +68,12 @@ def main() -> None:
     detector = YoloDetector(args.model, conf_threshold=0.3)
     matcher = SemanticMatcher({name: a.semantics for name, a in ANIMATIONS.items()}, switch_margin=0.05)
     switcher = AnimationSwitcher(confirm_frames=args.confirm, min_confidence=args.min_conf, min_dwell_s=args.dwell)
-    camera_index = args.camera if args.camera is not None else find_camera_index()
+    if args.camera is not None:
+        camera_index, camera_name = args.camera, f"camera {args.camera}"
+    else:
+        camera_index, camera_name = find_camera_index()
     camera = Camera(camera_index)
-    camera_label = f"camera {camera_index} ({int(camera.capture.get(cv2.CAP_PROP_FPS))} fps)"
+    camera_label = f"{camera_name} [{camera_index}] {int(camera.capture.get(cv2.CAP_PROP_FPS))} fps"
     log.info("using %s", camera_label)
     choreo = Choreographer()
     clip: Clip | None = None

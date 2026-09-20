@@ -84,9 +84,64 @@ def _postprocess(raw: np.ndarray, scale: float, width: int, height: int, conf_th
     return sorted(detections, key=lambda d: d.confidence, reverse=True)
 
 
-def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> int:
-    """Return a usable camera index. External UVC cameras enumerate after the built-in one on macOS,
-    so 'external' means the highest index that opens and yields a frame."""
+BUILTIN_MARKERS = ("facetime", "iphone", "continuity", "built-in", "capture screen")
+
+
+def list_cameras() -> list[tuple[int, str]]:
+    """(index, name) for each AVFoundation video device, via ffmpeg's device listing (macOS).
+    Returns [] if ffmpeg is unavailable; indices match cv2.VideoCapture on macOS."""
+    import re
+    import shutil
+    import subprocess
+
+    if shutil.which("ffmpeg") is None:
+        return []
+    try:
+        proc = subprocess.run(["ffmpeg", "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                              capture_output=True, text=True, timeout=10)
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    return parse_avfoundation_devices(proc.stderr)
+
+
+def parse_avfoundation_devices(listing: str) -> list[tuple[int, str]]:
+    import re
+
+    cameras: list[tuple[int, str]] = []
+    in_video = False
+    for line in listing.splitlines():
+        if "video devices" in line:
+            in_video = True
+            continue
+        if "audio devices" in line:
+            break
+        match = re.search(r"\[(\d+)\] (.+)$", line) if in_video else None
+        if match:
+            cameras.append((int(match.group(1)), match.group(2).strip()))
+    return cameras
+
+
+def is_builtin(name: str) -> bool:
+    lowered = name.lower()
+    return any(marker in lowered for marker in BUILTIN_MARKERS)
+
+
+def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> tuple[int, str]:
+    """Return (index, name) of the camera to use. With prefer_external, choose the first device
+    whose name is not a built-in/screen device. Falls back to probing indices when names are
+    unavailable (external cameras enumerate after the built-in one on macOS)."""
+    named = list_cameras()
+    if named:
+        external = [(i, n) for i, n in named if not is_builtin(n)]
+        if prefer_external and external:
+            chosen = external[0]
+        elif not prefer_external:
+            chosen = named[0]
+        else:
+            raise RuntimeError(f"no external camera found; devices: {named}")
+        logger.info("cameras %s -> using %s", named, chosen)
+        return chosen
+
     usable = []
     for index in range(max_index):
         capture = cv2.VideoCapture(index)
@@ -96,9 +151,9 @@ def find_camera_index(prefer_external: bool = True, max_index: int = 4) -> int:
             usable.append(index)
     if not usable:
         raise RuntimeError("no camera found")
-    chosen = usable[-1] if prefer_external else usable[0]
-    logger.info("cameras %s -> using %d", usable, chosen)
-    return chosen
+    index = usable[-1] if prefer_external else usable[0]
+    logger.info("cameras %s -> using %d (by index)", usable, index)
+    return index, f"camera {index}"
 
 
 class Camera:

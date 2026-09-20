@@ -33,6 +33,7 @@ python pose.py spider flower_closed alert neutral       # play a pose sequence
 python demo.py                                          # gaze-follow sweep
 python live.py --show                                   # real-time loop with a window: boxes, confidence, current animation
 python live.py --dry-run --show                         # vision + switching only, no servos
+python live.py --camera 1                               # force a specific camera index (default: first non-built-in by name)
 python live.py --confirm 6 --min-conf 0.6 --dwell 2     # less sensitive
 python perform.py spider flower greet --seconds 10      # choreographed moods, no camera needed
 ```
